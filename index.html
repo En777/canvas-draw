@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>canvas-draw</title>
+  <style>
+    html,
+    body,
+    ol {
+      margin: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>技术预研验证：canvas 黑板(写字、画画、涂鸦画板)</h1>
+  <ol>
+    <li>可以写字、画画</li>
+    <li>绘制的点、线等数据可以记录和恢复</li>
+    <li>可以撤销、恢复</li>
+    <li>支持手机触屏和PC鼠标操作</li>
+    <li>可以用橡皮擦擦除画线，但是不能擦除背景图，要保留背景图</li>
+  </ol>
+
+  <h2>Demo</h2>
+  <form onsubmit="return false;">
+    <div>
+      <select id="tool" multiple>
+        <option value="brush" selected>画笔</option>
+        <option value="eraser">橡皮擦</option>
+      </select>
+
+      <button onclick="undo();">undo</button>
+      <button onclick="redo();">redo</button>
+    </div>
+  </form>
+
+  <div>下面区域可以写字、画画</div>
+  <!-- https://www-jsdelivr-com.onrender.com/img/landing/bg.jpg -->
+  <!-- https://www-jsdelivr-com.onrender.com/img/landing/developer-friendly-bg-middle.png -->
+  <div style="background-image: url(https://www-jsdelivr-com.onrender.com/img/landing/developer-friendly-bg-middle.png);">
+    <div id="container"></div>
+  </div>
+
+  <!-- <script src="https://unpkg.com/konva@7.2.2/konva.min.js"></script> -->
+  <script src="https://cdn.jsdelivr.net/npm/konva@7.2.2/konva.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/throttle-debounce@3.0.1/umd/index.min.js"></script>
+
+  <script>
+    var allLines = [];
+    // allLinesMap: { [lineId]: { points: [], line } }
+    var allLinesMap = new Map();
+    var width = window.innerWidth;
+    var height = window.innerHeight - 100;
+    var hasTouch = 'ontouchstart' in window;
+    var touchstart = hasTouch ? 'touchstart' : 'mousedown';
+    var touchmove = hasTouch ? 'touchmove' : 'mousemove';
+    var touchend = hasTouch ? 'touchend' : 'mouseup';
+    var touchcancel = hasTouch ? 'touchcancel' : 'mouseleave';
+
+    var stepHistory = {
+      steps: [],
+      // currentIndex: 0,
+      redoSteps: [],
+    };
+
+    var stage = new Konva.Stage({
+      container: 'container',
+      width: width,
+      height: height,
+    });
+
+    var layer = new Konva.Layer();
+    stage.add(layer);
+
+    var isPaint = false;
+    var mode = 'brush';
+    var lastLine;
+    var lastLinePoints = [];
+
+    stage.on(touchstart, function (event) {
+      event.evt.preventDefault();
+      console.log('mousedown');
+      isPaint = true;
+      var pos = stage.getPointerPosition();
+      lastLine = new Konva.Line({
+        stroke: '#333',
+        strokeWidth: 5,
+        globalCompositeOperation: mode === 'brush' ? 'source-over' : 'destination-out',
+        points: [pos.x, pos.y],
+        // shadowForStrokeEnabled: false, // 看起来什么性能优化
+      });
+      layer.add(lastLine);
+      var lineId = event.evt.timeStamp || Date.now();
+      lastLine.id(lineId);
+      lastLine.hitStrokeWidth(0); // 看起来什么性能优化
+
+      console.log('shadowForStrokeEnabled', lastLine.shadowForStrokeEnabled());
+    });
+
+    stage.on(touchend, function (event) {
+      event.evt.preventDefault();
+      console.log('mouseup');
+      isPaint = false;
+      if (!lastLine) return;
+
+      stepHistory.steps.push(lastLine);
+      clearRedoSteps(stepHistory.redoSteps);
+
+      var points = lastLine.points();
+      allLines.push(points);
+      allLinesMap.set(lastLine.id(), { line: lastLine, points });
+
+      // lastLine.points(lastLinePoints);
+      // layer.batchDraw();
+
+      lastLinePoints = [];
+      lastLine = null;
+    });
+
+    // mouseout 有问题，鼠标再次画线碰到别的线，就触发mouseout
+    // mouseleave 不会有这样的bug
+    stage.on(touchcancel, function (event) {
+      event.evt.preventDefault();
+      console.log('mouseleave');
+      isPaint = false;
+      if (!lastLine) return;
+
+      stepHistory.steps.push(lastLine);
+      clearRedoSteps(stepHistory.redoSteps);
+
+      var points = lastLine.points();
+      allLines.push(points);
+      allLinesMap.set(lastLine.id(), { line: lastLine, points });
+      // lastLine.cache() // 没什么性能提升效果
+
+      lastLine = null;
+      lastLinePoints = [];
+
+      // 画的时候移出画布，删除划过的痕迹
+      // lastLine.destroy();
+      // layer.batchDraw();
+    })
+
+    // stage.on(touchmove, function () {
+    stage.on(touchmove, throttleDebounce.throttle(10, function (event) {
+      event.evt.preventDefault();
+      // console.log('touchmove', Date.now())
+      if (!isPaint) {
+        return;
+      }
+
+      // console.time('touchmove')
+
+      const pos = stage.getPointerPosition();
+      // var newPoints = lastLine.points().concat([pos.x, pos.y]);
+      // lastLine.points(newPoints);
+      // allLinesMap.set(lastLine.id(), { line: lastLine, points: newPoints })
+
+      // lastLinePoints缓存，与 lastLine.points().concat() 比没有明显性能差异
+      lastLinePoints.push(pos.x);
+      lastLinePoints.push(pos.y);
+      lastLine.points(lastLinePoints);
+      allLinesMap.set(lastLine.id(), { line: lastLine, points: lastLinePoints });
+
+      // 不停的移动鼠标，i51035 CPU都占50%，感觉性能不是很好，还有优化空间
+      // layer.batchDraw();
+      batchDrawThrottle();
+      // console.timeEnd('touchmove');
+    }));
+
+    function undo() {
+      const { steps, redoSteps } = stepHistory;
+      if (!steps.length) return;
+      // stepHistory.currentIndex--;
+      var lastLine = steps.pop();
+      redoSteps.push(lastLine.remove());
+      layer.batchDraw();
+      console.log('undo', steps, redoSteps);
+    }
+
+    function redo() {
+      const { steps, redoSteps } = stepHistory;
+      // stepHistory.currentIndex++;
+      if (!redoSteps.length) return;
+      var lastLine = redoSteps.pop();
+      steps.push(lastLine);
+      layer.add(lastLine);
+      layer.batchDraw();
+      console.log('redo', steps, redoSteps);
+    }
+
+    function clearRedoSteps(redoSteps) {
+      redoSteps.forEach(function (line) {
+        line.destroy();
+      });
+      redoSteps.splice(0);
+    }
+
+    var batchDrawThrottle = throttleDebounce.throttle(16, function () {
+      // console.time('batchDraw');
+      layer.batchDraw();
+      // console.timeEnd('batchDraw');
+    });
+
+    var select = document.getElementById('tool');
+    select.addEventListener('change', function () {
+      mode = select.value;
+    });
+  </script>
+
+</body>
+
+</html>
