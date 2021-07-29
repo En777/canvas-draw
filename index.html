@@ -11,6 +11,10 @@
     ol {
       margin: 0;
     }
+    button {
+      margin: auto 1em;
+      font-size: 16px;
+    }
   </style>
 </head>
 
@@ -32,8 +36,8 @@
         <option value="eraser">橡皮擦</option>
       </select>
 
-      <button onclick="undo();">undo</button>
-      <button onclick="redo();">redo</button>
+      <button onclick="undo();">撤销</button>
+      <button onclick="redo();">恢复</button>
     </div>
   </form>
 
@@ -44,6 +48,14 @@
     <div id="container"></div>
   </div>
 
+  <h2>原理、技术细节</h2>
+  <ul>
+    <li>为了OOP面向对象编程的方式操作canvas，所以采用了 konva.js 开源库</li>
+    <li>跟踪画笔坐标使用 touchmove 事件获取坐标点</li>
+    <li>橡皮擦的原理，实际上是个透明的画线</li>
+    <li>撤销、恢复使用数组记录了每一步的画线，撤销是在画布删除一条线，恢复是把删除的划线添加到画布</li>
+  </ul>
+
   <!-- <script src="https://unpkg.com/konva@7.2.2/konva.min.js"></script> -->
   <script src="https://cdn.jsdelivr.net/npm/konva@7.2.2/konva.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/throttle-debounce@3.0.1/umd/index.min.js"></script>
@@ -53,7 +65,7 @@
     // allLinesMap: { [lineId]: { points: [], line } }
     var allLinesMap = new Map();
     var width = window.innerWidth;
-    var height = window.innerHeight - 100;
+    var height = parseInt(window.innerHeight / 2);
     var hasTouch = 'ontouchstart' in window;
     var touchstart = hasTouch ? 'touchstart' : 'mousedown';
     var touchmove = hasTouch ? 'touchmove' : 'mousemove';
@@ -86,7 +98,7 @@
       isPaint = true;
       var pos = stage.getPointerPosition();
       lastLine = new Konva.Line({
-        stroke: '#333',
+        stroke: '#df4b26',
         strokeWidth: 5,
         globalCompositeOperation: mode === 'brush' ? 'source-over' : 'destination-out',
         points: [pos.x, pos.y],
